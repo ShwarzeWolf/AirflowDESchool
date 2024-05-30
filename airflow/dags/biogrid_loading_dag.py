@@ -5,10 +5,10 @@ from airflow.operators.python import PythonOperator
 import pendulum
 import pandas as pd
 import requests
-from sqlalchemy import create_engine
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 BASE_URL = 'https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-{version}/BIOGRID-ALL-{version}.tab3.zip'
-DATABASE_URL = 'postgresql://postgres:123456@host.docker.internal:5432/postgres'
 
 def load_biogrid():
     logging.info('Loading biogrid file...')
@@ -48,7 +48,8 @@ def ingest_data():
     logging.info('Biogrid file has been transformed')
     logging.info('Starting ingestion into database...')
 
-    engine = create_engine(DATABASE_URL)
+    postgres_hook = PostgresHook(postgres_conn_id='postgres_local')
+    engine = postgres_hook.get_sqlalchemy_engine()
     df.to_sql('biogrid_data', engine, if_exists='replace')
     logging.info('Data successfully ingested')
 
@@ -71,4 +72,10 @@ with DAG(
         python_callable=ingest_data
     )
 
-    load_data_op >> ingest_data_op
+    trigger_function_op = PostgresOperator(
+        task_id='trigger_function',
+        sql='SELECT get_biogrid_interactors();',
+        postgres_conn_id='postgres_local'
+    )
+
+    load_data_op >> ingest_data_op >> trigger_function_op
