@@ -1,35 +1,47 @@
 import logging
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-import pendulum
 import pandas as pd
+import pendulum
 import requests
+from airflow import DAG
+from airflow.models import (
+    Param,
+    Variable,
+)
+from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
-BASE_URL = 'https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-{version}/BIOGRID-ALL-{version}.tab3.zip'
 
-def load_biogrid():
+def load_biogrid(params, ti):
+    biogrid_version = params['version']
+    biogrid_url = Variable.get('biogrid_url')
+    local_file_name = f'biogrid_v{biogrid_version.replace(".", "_")}.tab3.zip'
+    ti.xcom_push(
+        key='local_file_name',
+        value=local_file_name
+    )
+
     logging.info('Loading biogrid file...')
     response = requests.get(
-        BASE_URL.format(version='4.4.200'),
+        biogrid_url.format(version=biogrid_version),
         params={'downloadformat': 'zip'}
     )
 
     if response.status_code == 200:
-        local_file_name = 'biogrid.tab3.zip'
         with open(local_file_name, 'wb') as f:
             f.write(response.content)
     else:
-        logging.error("The specified version is not found")
+        logging.error('The specified version is not found')
         raise Exception()
 
     logging.info('Biogrid file has loaded')
     logging.info('Starting biogrid processing')
 
-def ingest_data():
-    local_file_name = 'biogrid.tab3.zip'
+def ingest_data(params, ti):
+    biogrid_version = params['version']
+    local_file_name = ti.xcom_pull(task_ids='load_data', key='local_file_name')
+
     df = pd.read_csv(local_file_name, delimiter='\t', compression='zip', nrows=100)
 
     df = df.rename(
@@ -43,7 +55,7 @@ def ingest_data():
         'biogrid_id_interactor_b',
     ]]
 
-    df['version'] = '4.4.200'
+    df['version'] = biogrid_version
 
     logging.info('Biogrid file has been transformed')
     logging.info('Starting ingestion into database...')
@@ -58,9 +70,12 @@ with DAG(
     dag_id='biogrid_loading_dag',
     start_date=pendulum.today(),
     schedule=None,
-    tags=['lesson1', 'biogrid'],
+    tags=['lesson3', 'biogrid'],
     description='A DAG to load biogrid from website into Postgres database',
-    catchup=False
+    catchup=False,
+    params={
+        'version': Param('4.4.200', type='string')
+    }
 ) as dag:
     load_data_op = PythonOperator(
         task_id='load_data',
