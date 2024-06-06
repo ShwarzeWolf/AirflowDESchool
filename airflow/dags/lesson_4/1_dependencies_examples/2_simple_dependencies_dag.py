@@ -24,3 +24,8 @@ with DAG(
         task_id='finish',
         python_callable=_sleep
     )
+
+    upstream_op >> downstream_op
+    # downstream_op << upstream_op
+    # upstream_op.set_downstream(downstream_op)
+    # downstream_op.set_upstream(upstream_op)

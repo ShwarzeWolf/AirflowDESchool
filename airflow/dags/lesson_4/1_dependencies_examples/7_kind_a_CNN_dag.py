@@ -17,3 +17,15 @@ with DAG(
     insert_1_op = EmptyOperator(task_id='insert_1')
     insert_2_op = EmptyOperator(task_id='insert_2')
     finish_op = EmptyOperator(task_id='finish')
+
+    chain_linear(
+        start_op,
+        [transform_1_op, transform_2_op, transform_3_op],
+        [insert_1_op, insert_2_op],
+        finish_op
+    )
+
+    cross_downstream(
+        from_tasks=[transform_1_op, transform_2_op, transform_3_op],
+        to_tasks=[insert_1_op, insert_2_op],
+    )

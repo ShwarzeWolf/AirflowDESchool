@@ -19,3 +19,4 @@ with DAG(
     insert_2_op = EmptyOperator(task_id='insert_2')
     finish_op = EmptyOperator(task_id='finish')
 
+    chain(start_op, [transform_1_op, transform_2_op, transform_3_op], check_op, [insert_1_op, insert_2_op], finish_op)

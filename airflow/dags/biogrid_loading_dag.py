@@ -8,9 +8,26 @@ from airflow.models import (
     Param,
     Variable,
 )
-from airflow.operators.python import PythonOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow.utils.trigger_rule import TriggerRule
+
+
+def _check_version_existence(params):
+    biogrid_version = params['version']
+
+    postgres_hook = PostgresHook(postgres_conn_id='postgres_local')
+    connection = postgres_hook.get_conn()
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT DISTINCT(bd."version") FROM biogrid_data bd;') # [(value,)]
+        loaded_versions = [version[0] for version in cursor.fetchall()]
+
+        if biogrid_version not in loaded_versions:
+            return 'load_data'
+        else:
+            return 'finish'
 
 
 def load_biogrid(params, ti):
@@ -62,7 +79,7 @@ def ingest_data(params, ti):
 
     postgres_hook = PostgresHook(postgres_conn_id='postgres_local')
     engine = postgres_hook.get_sqlalchemy_engine()
-    df.to_sql('biogrid_data', engine, if_exists='replace')
+    df.to_sql('biogrid_data', engine, if_exists='append')
     logging.info('Data successfully ingested')
 
 
@@ -77,6 +94,13 @@ with DAG(
         'version': Param('4.4.200', type='string')
     }
 ) as dag:
+    start_op = EmptyOperator(task_id='start')
+
+    check_version_existence_op = BranchPythonOperator(
+        task_id='check_version_existence',
+        python_callable=_check_version_existence
+    )
+
     load_data_op = PythonOperator(
         task_id='load_data',
         python_callable=load_biogrid
@@ -93,4 +117,10 @@ with DAG(
         postgres_conn_id='postgres_local'
     )
 
-    load_data_op >> ingest_data_op >> trigger_function_op
+    finish_op = EmptyOperator(
+        task_id='finish',
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS
+    )
+
+    start_op >> check_version_existence_op >> load_data_op >> ingest_data_op >> trigger_function_op >> finish_op
+    start_op >> check_version_existence_op >> finish_op
