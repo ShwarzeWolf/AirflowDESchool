@@ -87,7 +87,7 @@ with DAG(
     dag_id='biogrid_loading_dag',
     start_date=pendulum.today(),
     schedule=None,
-    tags=['lesson3', 'biogrid'],
+    tags=['biogrid'],
     description='A DAG to load biogrid from website into Postgres database',
     catchup=False,
     params={
